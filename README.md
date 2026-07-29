@@ -1,2 +1,2 @@
-# buzzerquiz-management
+# Quiz
 クイズ管理
