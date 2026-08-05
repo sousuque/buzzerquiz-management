@@ -514,15 +514,53 @@ body { margin: 0; }
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  background: var(--panel-alt);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 10px 16px;
-  margin-bottom: 16px;
+  gap: 18px;
+  background: linear-gradient(135deg, rgba(240, 180, 41, 0.16), rgba(240, 180, 41, 0.05));
+  border: 1px solid var(--gold);
+  border-radius: 16px;
+  padding: 18px 24px;
+  margin-bottom: 20px;
+  box-shadow: 0 0 20px rgba(240, 180, 41, 0.12);
 }
-.qm-solo-score-label { font-size: 13px; color: var(--muted); font-weight: 700; }
+.qm-solo-score-label { font-size: 15px; color: var(--text); font-weight: 700; }
+.qm-solo-score-value {
+  min-width: 56px;
+  text-align: center;
+  font-size: 36px;
+  font-weight: 700;
+  color: var(--gold);
+  line-height: 1;
+}
+.qm-solo-score-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid var(--gold);
+  background: var(--panel-alt);
+  color: var(--gold);
+  font-size: 20px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.qm-solo-score-btn:hover { background: var(--gold); color: #1b2140; }
 .qm-solo-judge-row { display: flex; justify-content: center; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+.qm-solo-done-score {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  background: linear-gradient(135deg, rgba(240, 180, 41, 0.18), rgba(240, 180, 41, 0.06));
+  border: 1px solid var(--gold);
+  border-radius: 16px;
+  padding: 16px 28px;
+  margin: 8px 0 24px;
+}
+.qm-solo-done-score-label { font-size: 14px; color: var(--text); font-weight: 700; }
+.qm-solo-done-score-value { font-size: 40px; font-weight: 700; color: var(--gold); line-height: 1; }
 .qm-kebab-wrap { position: relative; flex-shrink: 0; }
 .qm-kebab-btn {
   width: 26px;
@@ -689,9 +727,12 @@ body { margin: 0; }
       showAnswer: false,
       participants: [],
       openMenuId: null,
-      soloScore: 0
+      soloScore: 0,
+      judgeSelected: null
     }
   };
+
+  var JUDGE_DELTA = { correct: 1, wrong: -1, none: 0 };
 
   var el = {
     tabSolveBtn: document.getElementById('tab-solve-btn'),
@@ -1266,6 +1307,7 @@ body { margin: 0; }
     state.solve.showAnswer = false;
     state.solve.openMenuId = null;
     state.solve.soloScore = 0;
+    state.solve.judgeSelected = null;
     setActiveTab('solve');
     renderSolve();
   }
@@ -1277,6 +1319,7 @@ body { margin: 0; }
     state.solve.index = 0;
     state.solve.showAnswer = false;
     state.solve.soloScore = 0;
+    state.solve.judgeSelected = null;
   }
 
   function solveBackToMode() {
@@ -1288,6 +1331,7 @@ body { margin: 0; }
     state.solve.showAnswer = false;
     state.solve.openMenuId = null;
     state.solve.soloScore = 0;
+    state.solve.judgeSelected = null;
     renderSolve();
   }
 
@@ -1295,6 +1339,7 @@ body { margin: 0; }
     if (state.solve.index > 0) {
       state.solve.index--;
       state.solve.showAnswer = false;
+      state.solve.judgeSelected = null;
       renderSolve();
     }
   }
@@ -1305,6 +1350,7 @@ body { margin: 0; }
     } else {
       state.solve.index++;
       state.solve.showAnswer = false;
+      state.solve.judgeSelected = null;
     }
     renderSolve();
   }
@@ -1323,6 +1369,7 @@ body { margin: 0; }
     state.solve.showAnswer = false;
     state.solve.openMenuId = null;
     state.solve.soloScore = 0;
+    state.solve.judgeSelected = null;
     setActiveTab('list');
   }
 
@@ -1332,12 +1379,10 @@ body { margin: 0; }
     renderSolve();
   }
   function judgeSolo(result) {
-    if (result === 'correct') {
-      state.solve.soloScore += 1;
-    } else if (result === 'wrong') {
-      state.solve.soloScore -= 1;
-    }
-    // result === 'none' (無回答) -> no change
+    var prevDelta = state.solve.judgeSelected ? JUDGE_DELTA[state.solve.judgeSelected] : 0;
+    var newDelta = JUDGE_DELTA[result];
+    state.solve.soloScore += (newDelta - prevDelta);
+    state.solve.judgeSelected = result;
     renderSolve();
   }
 
@@ -1458,9 +1503,9 @@ body { margin: 0; }
         mainHtml += '<div class="qm-solo-score-panel">' +
           '<span class="qm-solo-score-label">あなたの得点</span>' +
           '<div class="qm-score-control">' +
-          '<button class="qm-score-btn" type="button" data-action="solo-score-dec" aria-label="得点を減らす">−</button>' +
-          '<span class="qm-score-value">' + solve.soloScore + '</span>' +
-          '<button class="qm-score-btn" type="button" data-action="solo-score-inc" aria-label="得点を増やす">＋</button>' +
+          '<button class="qm-solo-score-btn" type="button" data-action="solo-score-dec" aria-label="得点を減らす">−</button>' +
+          '<span class="qm-solo-score-value">' + solve.soloScore + '</span>' +
+          '<button class="qm-solo-score-btn" type="button" data-action="solo-score-inc" aria-label="得点を増やす">＋</button>' +
           '</div></div>';
       }
       mainHtml += '<div class="qm-solve-progress">問題 ' + (solve.index + 1) + ' / ' + solve.queue.length + '</div>';
@@ -1471,10 +1516,13 @@ body { margin: 0; }
       } else if (solve.showAnswer) {
         mainHtml += '<div class="qm-solve-answer-pill">答え: ' + escapeHtml(currentQuiz.answer) + '</div>';
         if (solve.type === 'solo') {
+          var correctCls = 'qm-btn ' + (solve.judgeSelected === 'correct' ? 'qm-btn-primary' : 'qm-btn-danger');
+          var wrongCls = 'qm-btn ' + (solve.judgeSelected === 'wrong' ? 'qm-btn-primary' : 'qm-btn-danger');
+          var noneCls = 'qm-btn ' + (solve.judgeSelected === 'none' ? 'qm-btn-primary' : 'qm-btn-danger');
           mainHtml += '<div class="qm-solo-judge-row">' +
-            '<button class="qm-btn qm-btn-primary" type="button" data-action="solo-correct">⭕ 正解</button>' +
-            '<button class="qm-btn qm-btn-danger" type="button" data-action="solo-wrong">❌ 誤答</button>' +
-            '<button class="qm-btn" type="button" data-action="solo-none">➖ 無回答</button>' +
+            '<button class="' + correctCls + '" type="button" data-action="solo-correct">⭕ 正解</button>' +
+            '<button class="' + wrongCls + '" type="button" data-action="solo-wrong">❌ 誤答</button>' +
+            '<button class="' + noneCls + '" type="button" data-action="solo-none">➖ 無回答</button>' +
             '</div>';
         }
       } else {
@@ -1500,10 +1548,18 @@ body { margin: 0; }
     }
 
     if (solve.screen === 'done') {
+      var doneScoreHtml = '';
+      if (solve.type === 'solo') {
+        doneScoreHtml = '<div class="qm-solo-done-score">' +
+          '<span class="qm-solo-done-score-label">あなたの得点</span>' +
+          '<span class="qm-solo-done-score-value">' + solve.soloScore + '</span>' +
+          '</div>';
+      }
       el.solveRoot.innerHTML =
         '<div class="qm-card qm-solve-done-card">' +
         '<div class="qm-solve-setup-title">🎉 全問終了しました！</div>' +
         '<p class="qm-solve-setup-sub">全' + solve.queue.length + '問をすべて解き終わりました。</p>' +
+        doneScoreHtml +
         '<div class="qm-solve-choice-row">' +
         '<button class="qm-btn" type="button" data-action="solve-finish">終わる</button>' +
         '<button class="qm-btn qm-btn-primary" type="button" data-action="solve-restart">もう一度</button>' +
