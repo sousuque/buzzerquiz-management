@@ -549,6 +549,7 @@ body { margin: 0; }
 }
 .qm-solo-score-btn:hover { background: var(--gold); color: #1b2140; }
 .qm-solo-judge-row { display: flex; justify-content: center; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+.qm-solo-export-row { display: flex; justify-content: center; margin: 4px 0 16px; }
 .qm-solo-done-score {
   display: inline-flex;
   align-items: center;
@@ -728,7 +729,8 @@ body { margin: 0; }
       participants: [],
       openMenuId: null,
       soloScore: 0,
-      judgeSelected: null
+      judgeSelected: null,
+      judgeRecords: {} // quizId -> 'correct' | 'wrong' | 'none', persists through the whole solo session
     }
   };
 
@@ -1308,6 +1310,7 @@ body { margin: 0; }
     state.solve.openMenuId = null;
     state.solve.soloScore = 0;
     state.solve.judgeSelected = null;
+    state.solve.judgeRecords = {};
     setActiveTab('solve');
     renderSolve();
   }
@@ -1320,6 +1323,7 @@ body { margin: 0; }
     state.solve.showAnswer = false;
     state.solve.soloScore = 0;
     state.solve.judgeSelected = null;
+    state.solve.judgeRecords = {};
   }
 
   function solveBackToMode() {
@@ -1332,6 +1336,7 @@ body { margin: 0; }
     state.solve.openMenuId = null;
     state.solve.soloScore = 0;
     state.solve.judgeSelected = null;
+    state.solve.judgeRecords = {};
     renderSolve();
   }
 
@@ -1339,7 +1344,7 @@ body { margin: 0; }
     if (state.solve.index > 0) {
       state.solve.index--;
       state.solve.showAnswer = false;
-      state.solve.judgeSelected = null;
+      state.solve.judgeSelected = state.solve.judgeRecords[state.solve.queue[state.solve.index]] || null;
       renderSolve();
     }
   }
@@ -1350,7 +1355,7 @@ body { margin: 0; }
     } else {
       state.solve.index++;
       state.solve.showAnswer = false;
-      state.solve.judgeSelected = null;
+      state.solve.judgeSelected = state.solve.judgeRecords[state.solve.queue[state.solve.index]] || null;
     }
     renderSolve();
   }
@@ -1370,6 +1375,7 @@ body { margin: 0; }
     state.solve.openMenuId = null;
     state.solve.soloScore = 0;
     state.solve.judgeSelected = null;
+    state.solve.judgeRecords = {};
     setActiveTab('list');
   }
 
@@ -1383,7 +1389,56 @@ body { margin: 0; }
     var newDelta = JUDGE_DELTA[result];
     state.solve.soloScore += (newDelta - prevDelta);
     state.solve.judgeSelected = result;
+    var currentId = state.solve.queue[state.solve.index];
+    if (currentId) state.solve.judgeRecords[currentId] = result;
     renderSolve();
+  }
+
+  var JUDGE_LABEL = { correct: '正解', wrong: '誤答', none: '無回答' };
+
+  // ---- solo results CSV export (available mid-session or after finishing) ----
+  function exportSoloResults() {
+    var records = state.solve.judgeRecords;
+    var recordedIds = Object.keys(records);
+    if (recordedIds.length === 0) {
+      showStatus('error', 'まだ正解・誤答の判定がありません。');
+      return;
+    }
+    var quizById = {};
+    state.quizzes.forEach(function (q) { quizById[q.id] = q; });
+
+    // Keep queue order within each group so results read naturally.
+    var queueOrder = state.solve.queue;
+    var correctIds = queueOrder.filter(function (id) { return records[id] === 'correct'; });
+    var wrongOrNoneIds = queueOrder.filter(function (id) { return records[id] === 'wrong' || records[id] === 'none'; });
+
+    var rows = [['判定', 'question', 'answer', 'genre']];
+    correctIds.concat(wrongOrNoneIds).forEach(function (id) {
+      var q = quizById[id];
+      if (!q) return;
+      rows.push([JUDGE_LABEL[records[id]], q.question, q.answer, q.genre || '']);
+    });
+
+    if (rows.length === 1) {
+      showStatus('error', 'まだ正解・誤答の判定がありません。');
+      return;
+    }
+
+    var csv = unparseCSV(rows);
+    var blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    var stamp = new Date();
+    var pad = function (n) { return String(n).padStart(2, '0'); };
+    var name = 'solo-result-' + stamp.getFullYear() + pad(stamp.getMonth() + 1) + pad(stamp.getDate()) +
+      '-' + pad(stamp.getHours()) + pad(stamp.getMinutes());
+    a.href = url;
+    a.download = name + '.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showStatus('success', '結果をCSVに出力しました（' + correctIds.length + '問正解 / ' + wrongOrNoneIds.length + '問誤答・無回答）。');
   }
 
   // ---- participants ----
@@ -1507,6 +1562,9 @@ body { margin: 0; }
           '<span class="qm-solo-score-value">' + solve.soloScore + '</span>' +
           '<button class="qm-solo-score-btn" type="button" data-action="solo-score-inc" aria-label="得点を増やす">＋</button>' +
           '</div></div>';
+        mainHtml += '<div class="qm-solo-export-row">' +
+          '<button class="qm-btn" type="button" data-action="solo-export-csv">⭳ ここまでの結果をCSVに出力</button>' +
+          '</div>';
       }
       mainHtml += '<div class="qm-solve-progress">問題 ' + (solve.index + 1) + ' / ' + solve.queue.length + '</div>';
       mainHtml += '<div class="qm-solve-question-card">';
@@ -1563,7 +1621,11 @@ body { margin: 0; }
         '<div class="qm-solve-choice-row">' +
         '<button class="qm-btn" type="button" data-action="solve-finish">終わる</button>' +
         '<button class="qm-btn qm-btn-primary" type="button" data-action="solve-restart">もう一度</button>' +
-        '</div></div>';
+        '</div>' +
+        (solve.type === 'solo' ?
+          '<div class="qm-solo-export-row"><button class="qm-btn" type="button" data-action="solo-export-csv">⭳ 結果をCSVに出力</button></div>'
+          : '') +
+        '</div>';
       return;
     }
   }
@@ -1921,6 +1983,8 @@ body { margin: 0; }
       judgeSolo('wrong');
     } else if (action === 'solo-none') {
       judgeSolo('none');
+    } else if (action === 'solo-export-csv') {
+      exportSoloResults();
     } else if (action === 'empty-load') {
       el.fileInput.click();
     } else if (action === 'empty-create') {
