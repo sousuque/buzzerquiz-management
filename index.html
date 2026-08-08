@@ -2323,6 +2323,12 @@ body { margin: 0; }
       stopTypewriterByBuzz();
       return;
     }
+    if (state.solve.displayMode === 'typewriter' && state.solve.typingDone && !state.solve.showAnswer) {
+      e.preventDefault();
+      state.solve.showAnswer = true;
+      renderSolve();
+      return;
+    }
     if (state.solve.showAnswer) {
       e.preventDefault();
       solveNext();
