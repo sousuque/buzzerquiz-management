@@ -753,7 +753,7 @@ body { margin: 0; }
       type: null, // 'solo' | 'host'
       order: null, // 'random' | 'sequential'
       displayMode: null, // 'typewriter' | 'full' (solo mode only)
-      typeSpeed: 80, // ms between characters in typewriter mode
+      typeSpeed: 100, // ms between characters in typewriter mode
       queue: [],
       index: 0,
       showAnswer: false,
@@ -798,10 +798,10 @@ body { margin: 0; }
       state.solve.typingCharIndex++;
       var textEl = document.getElementById('qm-typewriter-text');
       if (textEl) textEl.textContent = text.slice(0, state.solve.typingCharIndex);
-      var delay = Math.max(10, state.solve.typeSpeed || 80);
+      var delay = Math.max(10, state.solve.typeSpeed || 100);
       typewriterTimer = setTimeout(tick, delay);
     };
-    var firstDelay = Math.max(10, state.solve.typeSpeed || 80);
+    var firstDelay = Math.max(10, state.solve.typeSpeed || 100);
     typewriterTimer = setTimeout(tick, firstDelay);
   }
   function stopTypewriterByBuzz() {
@@ -1695,7 +1695,7 @@ body { margin: 0; }
           '<input type="range" id="type-speed-range-play" class="qm-typespeed-range" min="20" max="300" step="10" value="' + solve.typeSpeed + '">' +
           '<div class="qm-typespeed-hint"><span>速い</span><span>遅い</span></div>' +
           '</div>';
-        var shownSoFar = currentQuiz.question.slice(0, solve.typingCharIndex);
+        var shownSoFar = solve.showAnswer ? currentQuiz.question : currentQuiz.question.slice(0, solve.typingCharIndex);
         mainHtml += '<div class="qm-solve-question-text qm-typewriter-text" id="qm-typewriter-text">' + escapeHtml(shownSoFar) + '</div>';
       } else {
         mainHtml += '<div class="qm-solve-question-text">' + escapeHtml(currentQuiz.question) + '</div>';
@@ -2151,7 +2151,7 @@ body { margin: 0; }
   el.solveRoot.addEventListener('input', function (e) {
     if (e.target && (e.target.id === 'type-speed-range' || e.target.id === 'type-speed-range-play')) {
       var val = parseInt(e.target.value, 10);
-      if (isNaN(val)) val = 80;
+      if (isNaN(val)) val = 100;
       state.solve.typeSpeed = val;
       var label = document.getElementById('type-speed-label');
       if (label) label.textContent = val;
@@ -2310,17 +2310,23 @@ body { margin: 0; }
     }
   }, true);
 
-  // spacebar triggers the buzzer during "1文字ずつ表示" mode
+  // spacebar: buzz in during "1文字ずつ表示" typing, or advance once the answer is shown
   document.addEventListener('keydown', function (e) {
     if (e.code !== 'Space' && e.key !== ' ') return;
     var tag = e.target && e.target.tagName ? e.target.tagName.toLowerCase() : '';
     if (tag === 'input' || tag === 'textarea' || (e.target && e.target.isContentEditable)) return;
     if (state.activeTab !== 'solve') return;
     if (state.solve.screen !== 'play') return;
-    if (state.solve.type !== 'solo' || state.solve.displayMode !== 'typewriter') return;
-    if (state.solve.typingDone) return;
-    e.preventDefault();
-    stopTypewriterByBuzz();
+    if (state.solve.type !== 'solo') return;
+    if (state.solve.displayMode === 'typewriter' && !state.solve.typingDone) {
+      e.preventDefault();
+      stopTypewriterByBuzz();
+      return;
+    }
+    if (state.solve.showAnswer) {
+      e.preventDefault();
+      solveNext();
+    }
   });
 
   // ---- init ----
