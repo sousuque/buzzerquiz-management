@@ -480,6 +480,31 @@ body { margin: 0; }
 
 .qm-typespeed-row { max-width: 360px; margin: 4px auto 0; text-align: left; }
 .qm-typespeed-row-play { margin-bottom: 6px; }
+.qm-shortcut-info {
+  margin-top: 18px;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 16px;
+}
+.qm-shortcut-title { font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: 8px; }
+.qm-shortcut-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.qm-shortcut-list li { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--text); }
+.qm-key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--gold);
+  flex-shrink: 0;
+}
 .qm-typespeed-range {
   width: 100%;
   accent-color: var(--red);
@@ -764,6 +789,7 @@ body { margin: 0; }
       judgeRecords: {}, // quizId -> 'correct' | 'wrong' | 'none', persists through the whole solo session
       typingCharIndex: 0, // how many characters of the current question are shown so far (typewriter mode)
       typingDone: false, // true once typing finished naturally or was stopped by the buzzer
+      typingStoppedByBuzz: false, // true when typingDone became true because of a buzz (not a natural finish)
       typingStarted: false, // true once the typing timer has been kicked off for the current question
       typingQuizId: null, // id of the question the current typing session belongs to
       readLengths: {} // quizId -> number of characters shown when typing stopped, persists through the whole solo session
@@ -781,6 +807,7 @@ body { margin: 0; }
     clearTypewriterTimer();
     state.solve.typingCharIndex = 0;
     state.solve.typingDone = false;
+    state.solve.typingStoppedByBuzz = false;
     state.solve.typingStarted = false;
     state.solve.typingQuizId = null;
   }
@@ -791,6 +818,7 @@ body { margin: 0; }
       if (state.solve.typingCharIndex >= text.length) {
         clearTypewriterTimer();
         state.solve.typingDone = true;
+        state.solve.typingStoppedByBuzz = false;
         state.solve.readLengths[quizId] = text.length;
         renderSolve();
         return;
@@ -808,8 +836,22 @@ body { margin: 0; }
     clearTypewriterTimer();
     var quizId = state.solve.queue[state.solve.index];
     state.solve.typingDone = true;
+    state.solve.typingStoppedByBuzz = true;
     if (quizId) state.solve.readLengths[quizId] = state.solve.typingCharIndex;
     renderSolve();
+  }
+  function resumeTypewriterReading() {
+    var quizId = state.solve.queue[state.solve.index];
+    if (!quizId) return;
+    var currentQuiz = null;
+    for (var i = 0; i < state.quizzes.length; i++) {
+      if (state.quizzes[i].id === quizId) { currentQuiz = state.quizzes[i]; break; }
+    }
+    if (!currentQuiz) return;
+    state.solve.typingDone = false;
+    state.solve.typingStoppedByBuzz = false;
+    renderSolve();
+    startTypewriterTicking(quizId, currentQuiz.question);
   }
 
   var JUDGE_DELTA = { correct: 1, wrong: -1, none: 0 };
@@ -1655,6 +1697,13 @@ body { margin: 0; }
         '<label class="qm-label" for="type-speed-range">表示スピード（1文字ごとの間隔: <span id="type-speed-label">' + solve.typeSpeed + '</span>ms）※「1文字ずつ表示」で使用します</label>' +
         '<input type="range" id="type-speed-range" class="qm-typespeed-range" min="20" max="300" step="10" value="' + solve.typeSpeed + '">' +
         '<div class="qm-typespeed-hint"><span>速い</span><span>遅い</span></div>' +
+        '<div class="qm-shortcut-info">' +
+        '<div class="qm-shortcut-title">⌨ 「1文字ずつ表示」ショートカットキー</div>' +
+        '<ul class="qm-shortcut-list">' +
+        '<li><span class="qm-key">スペース</span>読み上げ中：早押し／早押し後：次の問題へ／答え表示後：次の問題へ</li>' +
+        '<li><span class="qm-key">B</span>早押し後、問題文の続きを読み上げる</li>' +
+        '</ul>' +
+        '</div>' +
         '</div>' +
         '<button class="qm-btn qm-solve-back" type="button" data-action="solve-back-to-order">← 戻る</button>' +
         '</div>';
@@ -2310,25 +2359,49 @@ body { margin: 0; }
     }
   }, true);
 
-  // spacebar: buzz in during "1文字ずつ表示" typing, or advance once the answer is shown
+  // spacebar / B key: buzz in, resume reading, reveal answer, or advance — depending on state
   document.addEventListener('keydown', function (e) {
-    if (e.code !== 'Space' && e.key !== ' ') return;
     var tag = e.target && e.target.tagName ? e.target.tagName.toLowerCase() : '';
     if (tag === 'input' || tag === 'textarea' || (e.target && e.target.isContentEditable)) return;
     if (state.activeTab !== 'solve') return;
     if (state.solve.screen !== 'play') return;
     if (state.solve.type !== 'solo') return;
+
+    var isSpace = (e.code === 'Space' || e.key === ' ');
+    var isB = (e.code === 'KeyB' || e.key === 'b' || e.key === 'B');
+
     if (state.solve.displayMode === 'typewriter' && !state.solve.typingDone) {
+      // question is still being read out -> space buzzes in
+      if (!isSpace) return;
       e.preventDefault();
       stopTypewriterByBuzz();
       return;
     }
-    if (state.solve.displayMode === 'typewriter' && state.solve.typingDone && !state.solve.showAnswer) {
+
+    if (state.solve.displayMode === 'typewriter' && state.solve.typingDone && state.solve.typingStoppedByBuzz && !state.solve.showAnswer) {
+      // buzzed in, waiting: space skips to the next question, B resumes reading from where it stopped
+      if (isB) {
+        e.preventDefault();
+        resumeTypewriterReading();
+        return;
+      }
+      if (isSpace) {
+        e.preventDefault();
+        solveNext();
+      }
+      return;
+    }
+
+    if (!isSpace) return;
+
+    if (state.solve.displayMode === 'typewriter' && state.solve.typingDone && !state.solve.typingStoppedByBuzz && !state.solve.showAnswer) {
+      // finished reading naturally (no buzz) -> space reveals the answer
       e.preventDefault();
       state.solve.showAnswer = true;
       renderSolve();
       return;
     }
+
     if (state.solve.showAnswer) {
       e.preventDefault();
       solveNext();
