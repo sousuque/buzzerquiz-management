@@ -478,6 +478,35 @@ body { margin: 0; }
 .qm-solve-abandon-row { text-align: center; margin-top: 16px; }
 .qm-solve-done-card { text-align: center; padding: 56px 24px; }
 
+.qm-typespeed-row { max-width: 360px; margin: 4px auto 0; text-align: left; }
+.qm-typespeed-row-play { margin-bottom: 6px; }
+.qm-typespeed-range {
+  width: 100%;
+  accent-color: var(--red);
+  cursor: pointer;
+}
+.qm-typespeed-hint { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+.qm-buzz-row { display: flex; justify-content: center; margin-top: 4px; }
+.qm-buzz-circle {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  border: none;
+  background: radial-gradient(circle at 35% 30%, var(--red), var(--red-dark));
+  color: #fff;
+  font-size: 30px;
+  cursor: pointer;
+  box-shadow: 0 6px 0 var(--red-dark), 0 8px 18px rgba(232, 72, 75, 0.45);
+  transition: transform 0.08s ease, box-shadow 0.08s ease;
+}
+.qm-buzz-circle:hover { box-shadow: 0 6px 0 var(--red-dark), 0 8px 24px rgba(232, 72, 75, 0.6); }
+.qm-buzz-circle:active {
+  transform: translateY(4px);
+  box-shadow: 0 2px 0 var(--red-dark), 0 4px 10px rgba(232, 72, 75, 0.45);
+}
+.qm-typewriter-text { min-height: 1.8em; }
+
 .qm-participants-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 14px; }
 .qm-participants-title { font-size: 13px; font-weight: 700; color: var(--muted); }
 .qm-participant-list { display: flex; flex-direction: column; gap: 10px; max-height: 560px; overflow-y: auto; }
@@ -720,9 +749,11 @@ body { margin: 0; }
     status: null,
     selectedIds: [],
     solve: {
-      screen: 'mode', // 'mode' | 'order' | 'play' | 'done'
+      screen: 'mode', // 'mode' | 'order' | 'display' | 'play' | 'done'
       type: null, // 'solo' | 'host'
       order: null, // 'random' | 'sequential'
+      displayMode: null, // 'typewriter' | 'full' (solo mode only)
+      typeSpeed: 80, // ms between characters in typewriter mode
       queue: [],
       index: 0,
       showAnswer: false,
@@ -730,9 +761,56 @@ body { margin: 0; }
       openMenuId: null,
       soloScore: 0,
       judgeSelected: null,
-      judgeRecords: {} // quizId -> 'correct' | 'wrong' | 'none', persists through the whole solo session
+      judgeRecords: {}, // quizId -> 'correct' | 'wrong' | 'none', persists through the whole solo session
+      typingCharIndex: 0, // how many characters of the current question are shown so far (typewriter mode)
+      typingDone: false, // true once typing finished naturally or was stopped by the buzzer
+      typingStarted: false, // true once the typing timer has been kicked off for the current question
+      typingQuizId: null, // id of the question the current typing session belongs to
+      readLengths: {} // quizId -> number of characters shown when typing stopped, persists through the whole solo session
     }
   };
+
+  var typewriterTimer = null;
+  function clearTypewriterTimer() {
+    if (typewriterTimer) {
+      clearTimeout(typewriterTimer);
+      typewriterTimer = null;
+    }
+  }
+  function resetCurrentTyping() {
+    clearTypewriterTimer();
+    state.solve.typingCharIndex = 0;
+    state.solve.typingDone = false;
+    state.solve.typingStarted = false;
+    state.solve.typingQuizId = null;
+  }
+  function startTypewriterTicking(quizId, text) {
+    clearTypewriterTimer();
+    var tick = function () {
+      if (state.solve.typingQuizId !== quizId) { clearTypewriterTimer(); return; }
+      if (state.solve.typingCharIndex >= text.length) {
+        clearTypewriterTimer();
+        state.solve.typingDone = true;
+        state.solve.readLengths[quizId] = text.length;
+        renderSolve();
+        return;
+      }
+      state.solve.typingCharIndex++;
+      var textEl = document.getElementById('qm-typewriter-text');
+      if (textEl) textEl.textContent = text.slice(0, state.solve.typingCharIndex);
+      var delay = Math.max(10, state.solve.typeSpeed || 80);
+      typewriterTimer = setTimeout(tick, delay);
+    };
+    var firstDelay = Math.max(10, state.solve.typeSpeed || 80);
+    typewriterTimer = setTimeout(tick, firstDelay);
+  }
+  function stopTypewriterByBuzz() {
+    clearTypewriterTimer();
+    var quizId = state.solve.queue[state.solve.index];
+    state.solve.typingDone = true;
+    if (quizId) state.solve.readLengths[quizId] = state.solve.typingCharIndex;
+    renderSolve();
+  }
 
   var JUDGE_DELTA = { correct: 1, wrong: -1, none: 0 };
 
@@ -1304,6 +1382,7 @@ body { margin: 0; }
     state.solve.screen = 'mode';
     state.solve.type = null;
     state.solve.order = null;
+    state.solve.displayMode = null;
     state.solve.queue = [];
     state.solve.index = 0;
     state.solve.showAnswer = false;
@@ -1311,6 +1390,8 @@ body { margin: 0; }
     state.solve.soloScore = 0;
     state.solve.judgeSelected = null;
     state.solve.judgeRecords = {};
+    state.solve.readLengths = {};
+    resetCurrentTyping();
     setActiveTab('solve');
     renderSolve();
   }
@@ -1324,12 +1405,15 @@ body { margin: 0; }
     state.solve.soloScore = 0;
     state.solve.judgeSelected = null;
     state.solve.judgeRecords = {};
+    state.solve.readLengths = {};
+    resetCurrentTyping();
   }
 
   function solveBackToMode() {
     state.solve.screen = 'mode';
     state.solve.type = null;
     state.solve.order = null;
+    state.solve.displayMode = null;
     state.solve.queue = [];
     state.solve.index = 0;
     state.solve.showAnswer = false;
@@ -1337,6 +1421,8 @@ body { margin: 0; }
     state.solve.soloScore = 0;
     state.solve.judgeSelected = null;
     state.solve.judgeRecords = {};
+    state.solve.readLengths = {};
+    resetCurrentTyping();
     renderSolve();
   }
 
@@ -1345,6 +1431,7 @@ body { margin: 0; }
       state.solve.index--;
       state.solve.showAnswer = false;
       state.solve.judgeSelected = state.solve.judgeRecords[state.solve.queue[state.solve.index]] || null;
+      resetCurrentTyping();
       renderSolve();
     }
   }
@@ -1352,10 +1439,12 @@ body { margin: 0; }
     var lastIndex = state.solve.queue.length - 1;
     if (state.solve.index >= lastIndex) {
       state.solve.screen = 'done';
+      clearTypewriterTimer();
     } else {
       state.solve.index++;
       state.solve.showAnswer = false;
       state.solve.judgeSelected = state.solve.judgeRecords[state.solve.queue[state.solve.index]] || null;
+      resetCurrentTyping();
     }
     renderSolve();
   }
@@ -1369,6 +1458,7 @@ body { margin: 0; }
     state.solve.screen = 'mode';
     state.solve.type = null;
     state.solve.order = null;
+    state.solve.displayMode = null;
     state.solve.queue = [];
     state.solve.index = 0;
     state.solve.showAnswer = false;
@@ -1376,6 +1466,8 @@ body { margin: 0; }
     state.solve.soloScore = 0;
     state.solve.judgeSelected = null;
     state.solve.judgeRecords = {};
+    state.solve.readLengths = {};
+    resetCurrentTyping();
     setActiveTab('list');
   }
 
@@ -1412,11 +1504,20 @@ body { margin: 0; }
     var correctIds = queueOrder.filter(function (id) { return records[id] === 'correct'; });
     var wrongOrNoneIds = queueOrder.filter(function (id) { return records[id] === 'wrong' || records[id] === 'none'; });
 
+    var isTypewriter = state.solve.type === 'solo' && state.solve.displayMode === 'typewriter';
+
     var rows = [['判定', 'question', 'answer', 'genre']];
     correctIds.concat(wrongOrNoneIds).forEach(function (id) {
       var q = quizById[id];
       if (!q) return;
-      rows.push([JUDGE_LABEL[records[id]], q.question, q.answer, q.genre || '']);
+      var questionText = q.question;
+      if (isTypewriter) {
+        var cut = state.solve.readLengths.hasOwnProperty(id) ? state.solve.readLengths[id] : questionText.length;
+        if (cut < 0) cut = 0;
+        if (cut > questionText.length) cut = questionText.length;
+        questionText = questionText.slice(0, cut) + '/' + questionText.slice(cut);
+      }
+      rows.push([JUDGE_LABEL[records[id]], questionText, q.answer, q.genre || '']);
     });
 
     if (rows.length === 1) {
@@ -1542,6 +1643,24 @@ body { margin: 0; }
       return;
     }
 
+    if (solve.screen === 'display') {
+      el.solveRoot.innerHTML =
+        '<div class="qm-card qm-solve-setup-card">' +
+        '<div class="qm-solve-setup-title">問題文の表示方法を選んでください</div>' +
+        '<div class="qm-solve-choice-row">' +
+        '<button class="qm-btn qm-btn-primary qm-btn-lg" type="button" data-action="solve-choose-display" data-mode="typewriter">⌨ 1文字ずつ表示</button>' +
+        '<button class="qm-btn qm-btn-primary qm-btn-lg" type="button" data-action="solve-choose-display" data-mode="full">📄 そのまま表示</button>' +
+        '</div>' +
+        '<div class="qm-typespeed-row">' +
+        '<label class="qm-label" for="type-speed-range">表示スピード（1文字ごとの間隔: <span id="type-speed-label">' + solve.typeSpeed + '</span>ms）※「1文字ずつ表示」で使用します</label>' +
+        '<input type="range" id="type-speed-range" class="qm-typespeed-range" min="20" max="300" step="10" value="' + solve.typeSpeed + '">' +
+        '<div class="qm-typespeed-hint"><span>速い</span><span>遅い</span></div>' +
+        '</div>' +
+        '<button class="qm-btn qm-solve-back" type="button" data-action="solve-back-to-order">← 戻る</button>' +
+        '</div>';
+      return;
+    }
+
     if (solve.screen === 'play') {
       var currentId = solve.queue[solve.index];
       var currentQuiz = null;
@@ -1568,9 +1687,24 @@ body { margin: 0; }
       }
       mainHtml += '<div class="qm-solve-progress">問題 ' + (solve.index + 1) + ' / ' + solve.queue.length + '</div>';
       mainHtml += '<div class="qm-solve-question-card">';
-      mainHtml += '<div class="qm-solve-question-text">' + escapeHtml(currentQuiz.question) + '</div>';
+
+      var isTypewriterPlay = solve.type === 'solo' && solve.displayMode === 'typewriter';
+      if (isTypewriterPlay) {
+        mainHtml += '<div class="qm-typespeed-row qm-typespeed-row-play">' +
+          '<label class="qm-label" for="type-speed-range-play">表示スピード（1文字ごとの間隔: <span id="type-speed-label-play">' + solve.typeSpeed + '</span>ms）</label>' +
+          '<input type="range" id="type-speed-range-play" class="qm-typespeed-range" min="20" max="300" step="10" value="' + solve.typeSpeed + '">' +
+          '<div class="qm-typespeed-hint"><span>速い</span><span>遅い</span></div>' +
+          '</div>';
+        var shownSoFar = currentQuiz.question.slice(0, solve.typingCharIndex);
+        mainHtml += '<div class="qm-solve-question-text qm-typewriter-text" id="qm-typewriter-text">' + escapeHtml(shownSoFar) + '</div>';
+      } else {
+        mainHtml += '<div class="qm-solve-question-text">' + escapeHtml(currentQuiz.question) + '</div>';
+      }
+
       if (solve.type === 'host') {
         mainHtml += '<div class="qm-solve-answer-pill">答え: ' + escapeHtml(currentQuiz.answer) + '</div>';
+      } else if (isTypewriterPlay && !solve.typingDone) {
+        mainHtml += '<div class="qm-buzz-row"><button class="qm-buzz-circle" type="button" data-action="solve-buzz" aria-label="早押しボタン">●</button></div>';
       } else if (solve.showAnswer) {
         mainHtml += '<div class="qm-solve-answer-pill">答え: ' + escapeHtml(currentQuiz.answer) + '</div>';
         if (solve.type === 'solo') {
@@ -1601,6 +1735,12 @@ body { margin: 0; }
           '</div>';
       } else {
         el.solveRoot.innerHTML = '<div class="qm-solve-main" style="max-width:640px;margin:0 auto;">' + mainHtml + '</div>';
+      }
+
+      if (isTypewriterPlay && !solve.typingDone && !solve.typingStarted) {
+        solve.typingStarted = true;
+        solve.typingQuizId = currentId;
+        startTypewriterTicking(currentId, currentQuiz.question);
       }
       return;
     }
@@ -1932,8 +2072,23 @@ body { margin: 0; }
     } else if (action === 'solve-choose-order') {
       state.solve.order = actionEl.getAttribute('data-order');
       buildQueue();
+      if (state.solve.type === 'solo') {
+        state.solve.screen = 'display';
+      } else {
+        state.solve.screen = 'play';
+      }
+      renderSolve();
+    } else if (action === 'solve-choose-display') {
+      state.solve.displayMode = actionEl.getAttribute('data-mode');
+      resetCurrentTyping();
       state.solve.screen = 'play';
       renderSolve();
+    } else if (action === 'solve-back-to-order') {
+      state.solve.displayMode = null;
+      state.solve.screen = 'order';
+      renderSolve();
+    } else if (action === 'solve-buzz') {
+      stopTypewriterByBuzz();
     } else if (action === 'solve-back-to-mode') {
       solveBackToMode();
     } else if (action === 'solve-reveal') {
@@ -1989,6 +2144,21 @@ body { margin: 0; }
       el.fileInput.click();
     } else if (action === 'empty-create') {
       setActiveTab('create');
+    }
+  });
+
+  // typing speed slider (display screen + play screen)
+  el.solveRoot.addEventListener('input', function (e) {
+    if (e.target && (e.target.id === 'type-speed-range' || e.target.id === 'type-speed-range-play')) {
+      var val = parseInt(e.target.value, 10);
+      if (isNaN(val)) val = 80;
+      state.solve.typeSpeed = val;
+      var label = document.getElementById('type-speed-label');
+      if (label) label.textContent = val;
+      var labelPlay = document.getElementById('type-speed-label-play');
+      if (labelPlay) labelPlay.textContent = val;
+      var otherRange = e.target.id === 'type-speed-range' ? document.getElementById('type-speed-range-play') : document.getElementById('type-speed-range');
+      if (otherRange) otherRange.value = val;
     }
   });
 
@@ -2139,6 +2309,19 @@ body { margin: 0; }
       e.stopPropagation();
     }
   }, true);
+
+  // spacebar triggers the buzzer during "1文字ずつ表示" mode
+  document.addEventListener('keydown', function (e) {
+    if (e.code !== 'Space' && e.key !== ' ') return;
+    var tag = e.target && e.target.tagName ? e.target.tagName.toLowerCase() : '';
+    if (tag === 'input' || tag === 'textarea' || (e.target && e.target.isContentEditable)) return;
+    if (state.activeTab !== 'solve') return;
+    if (state.solve.screen !== 'play') return;
+    if (state.solve.type !== 'solo' || state.solve.displayMode !== 'typewriter') return;
+    if (state.solve.typingDone) return;
+    e.preventDefault();
+    stopTypewriterByBuzz();
+  });
 
   // ---- init ----
   loadFromStorage();
