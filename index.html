@@ -1700,7 +1700,7 @@ body { margin: 0; }
         '<div class="qm-shortcut-info">' +
         '<div class="qm-shortcut-title">⌨ 「1文字ずつ表示」ショートカットキー</div>' +
         '<ul class="qm-shortcut-list">' +
-        '<li><span class="qm-key">スペース</span>読み上げ中：早押し／早押し後：次の問題へ／答え表示後：次の問題へ</li>' +
+        '<li><span class="qm-key">スペース</span>読み上げ中：早押し／早押し後・読み終わった後：答えを表示／答え表示後：次の問題へ</li>' +
         '<li><span class="qm-key">B</span>早押し後、問題文の続きを読み上げる</li>' +
         '</ul>' +
         '</div>' +
@@ -2359,7 +2359,7 @@ body { margin: 0; }
     }
   }, true);
 
-  // spacebar / B key: buzz in, resume reading, reveal answer, or advance — depending on state
+  // spacebar / B key: buzz in, reveal answer, resume reading, or advance — depending on state
   document.addEventListener('keydown', function (e) {
     var tag = e.target && e.target.tagName ? e.target.tagName.toLowerCase() : '';
     if (tag === 'input' || tag === 'textarea' || (e.target && e.target.isContentEditable)) return;
@@ -2378,31 +2378,23 @@ body { margin: 0; }
       return;
     }
 
-    if (state.solve.displayMode === 'typewriter' && state.solve.typingDone && state.solve.typingStoppedByBuzz && !state.solve.showAnswer) {
-      // buzzed in, waiting: space skips to the next question, B resumes reading from where it stopped
-      if (isB) {
-        e.preventDefault();
-        resumeTypewriterReading();
-        return;
-      }
+    if (state.solve.displayMode === 'typewriter' && state.solve.typingDone && !state.solve.showAnswer) {
+      // stopped (buzzed in, or finished reading) and answer not shown yet ->
+      // space reveals the answer, B (only available after a buzz) resumes reading
       if (isSpace) {
         e.preventDefault();
-        solveNext();
+        state.solve.showAnswer = true;
+        renderSolve();
+        return;
+      }
+      if (isB && state.solve.typingStoppedByBuzz) {
+        e.preventDefault();
+        resumeTypewriterReading();
       }
       return;
     }
 
-    if (!isSpace) return;
-
-    if (state.solve.displayMode === 'typewriter' && state.solve.typingDone && !state.solve.typingStoppedByBuzz && !state.solve.showAnswer) {
-      // finished reading naturally (no buzz) -> space reveals the answer
-      e.preventDefault();
-      state.solve.showAnswer = true;
-      renderSolve();
-      return;
-    }
-
-    if (state.solve.showAnswer) {
+    if (isSpace && state.solve.showAnswer) {
       e.preventDefault();
       solveNext();
     }
